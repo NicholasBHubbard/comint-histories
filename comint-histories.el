@@ -117,9 +117,10 @@ length if :length was changed in PROPS."
                      (cdr history)))
            (setf (plist-get (cdr history) :history)
                  (make-ring (plist-get (cdr history) :length)))
-           (when (plist-get (cdr history) :persist)
-             (comint-histories--load-history-from-disk history t))
-           (add-to-list 'comint-histories--histories history t))))))
+           (add-to-list 'comint-histories--histories history t)
+           (when (and (plist-get (cdr history) :persist)
+                      (f-file? (comint-histories--history-file history t)))
+             (comint-histories--load-history-from-disk history t)))))))
 
 (defun comint-histories-search-history (arg &optional history)
   "Search the HISTORY with `completing-read' and insert the selection.
@@ -167,13 +168,13 @@ automatically select the history."
      (append comint-histories-global-filters
              (plist-get (cdr history) :filters)))))
 
-(defun comint-histories--history-file (history)
-  "Return the history-file for HISTORY, creating it if it doesn't exist."
+(defun comint-histories--history-file (history &optional dont-create)
+  "Return the history-file for HISTORY, maybe creating it if it doesn't exist."
   (let* ((dir (f-join user-emacs-directory "comint-histories"))
          (file (f-join dir (car history))))
-    (when (not (f-directory? dir))
+    (when (and (not dont-create) (not (f-directory? dir)))
       (f-mkdir dir))
-    (when (not (f-file? file))
+    (when (and (not dont-create) (not (f-file? file)))
       (f-touch file))
     file))
 
