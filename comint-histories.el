@@ -188,7 +188,7 @@ If INSERT is non-nil then insert the history into HISTORY's history ring."
                  (split-string history-text (format "%c" #x1F) t)
                  length)))
     (when insert
-      (let ((comint-input-ring)
+      (let ((comint-input-ring (make-ring 0))
             (comint-input-filter
              (comint-histories--history-filter-function history)))
         (ring-resize comint-input-ring length)
