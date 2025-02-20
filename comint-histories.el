@@ -162,9 +162,9 @@ automatically select the history."
   (lambda (input)
     (cl-every
      (lambda (filter)
-       (if (functionp filter)
-           (not (funcall filter input))
-         (not (string-match-p filter input))))
+       (not (if (functionp filter)
+                (funcall filter input)
+              (string-match-p filter input))))
      (append comint-histories-global-filters
              (plist-get (cdr history) :filters)))))
 
@@ -290,21 +290,21 @@ Note that indices start at 0."
     (when (plist-get (cdr history) :persist)
       (comint-histories--save-history-to-disk history))))
 
-(defun comint-histories--maybe-trim-input (cmd)
-  "Advise function to maybe trim CMD before adding it to `comint-input-ring'.
+(defun comint-histories--maybe-trim-input (args)
+  "Advise function to maybe trim cmd before adding it to `comint-input-ring'.
 
 This function is used as :filter-args advice to `comint-add-to-input-history'
 when `comint-histories-mode' is enabled."
-  (let ((history (comint-histories--select-history)))
-    (if (null history)
-        cmd
+  (if-let ((history (comint-histories--select-history)))
       (let ((ltrim (plist-get (cdr history) :ltrim))
-            (rtrim (plist-get (cdr history) :rtrim)))
+            (rtrim (plist-get (cdr history) :rtrim))
+            (cmd (car args)))
         (when ltrim
           (setq cmd (replace-regexp-in-string "^[\n\r ]+" "" cmd)))
         (when rtrim
           (setq cmd (replace-regexp-in-string "[\n\r ]+$" "" cmd)))
-        cmd))))
+        (list cmd))
+    args))
 
 (defun comint-histories--comint-mode-hook ()
   "Hook to `comint-mode-hook' used when `comint-histories-mode' is on."
