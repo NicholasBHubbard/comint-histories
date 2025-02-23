@@ -295,7 +295,7 @@ Note that indices start at 0."
 
 This function is used as :filter-args advice to `comint-add-to-input-history'
 when `comint-histories-mode' is enabled."
-  (if-let ((history (comint-histories--select-history)))
+  (if-let ((history comint-histories--last-selected-history))
       (let ((ltrim (plist-get (cdr history) :ltrim))
             (rtrim (plist-get (cdr history) :rtrim))
             (cmd (car args)))
