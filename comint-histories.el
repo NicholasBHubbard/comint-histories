@@ -231,8 +231,9 @@ with zero arguments."
     (when (and selected-history
                (not (equal (car selected-history)
                            (car comint-histories--last-selected-history))))
-      (comint-histories--save-back-comint-input-ring
-       comint-histories--last-selected-history)
+      (when comint-history-last-selected-history
+        (comint-histories--save-back-comint-input-ring
+         comint-histories--last-selected-history))
       (setq-local comint-histories--last-selected-history selected-history)
       (setq-local comint-input-ring (plist-get (cdr selected-history) :history))
       (setq-local comint-input-filter
