@@ -189,10 +189,9 @@ If INSERT is non-nil then insert the history into HISTORY's history ring."
                  (split-string history-text (format "%c" #x1F) t)
                  length)))
     (when insert
-      (let ((comint-input-ring (make-ring 0))
+      (let ((comint-input-ring (make-ring length))
             (comint-input-filter
              (comint-histories--history-filter-function history)))
-        (ring-resize comint-input-ring length)
         (dolist (x (reverse lines))
           (comint-add-to-input-history x))
         (comint-histories--save-back-comint-input-ring history)))
@@ -320,10 +319,13 @@ when `comint-histories-mode' is enabled."
   (if comint-histories-mode
       (progn
         (add-hook 'comint-mode-hook #'comint-histories--comint-mode-hook)
+        (advice-add 'comint-send-input :before
+                    #'comint-histories--select-history)
         (advice-add 'comint-add-to-input-history :filter-args
                     #'comint-histories--maybe-trim-input)
         (add-hook 'kill-emacs-hook #'comint-histories--save-histories-to-disk))
     (remove-hook 'comint-mode-hook #'comint-histories--comint-mode-hook)
+    (advice-remove 'comint-send-input #'comint-histories--select-history)
     (advice-remove 'comint-add-to-input-history
                    #'comint-histories--maybe-trim-input)
     (remove-hook 'kill-emacs-hook #'comint-histories--save-histories-to-disk)))
