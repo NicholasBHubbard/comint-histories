@@ -170,10 +170,8 @@ automatically select the history."
 
 (defun comint-histories--history-file (history &optional dont-create)
   "Return the history-file for HISTORY, maybe creating it if it doesn't exist."
-  (let* ((dir (f-join
-               (or (bound-and-true-p comint-histories-persist-dir)
-                   user-emacs-directory)
-               "comint-histories"))
+  (let* ((dir (or (bound-and-true-p comint-histories-persist-dir)
+                  (f-join user-emacs-directory "comint-histories")))
          (file (f-join dir (car history))))
     (when (and (not dont-create) (not (f-directory? dir)))
       (f-mkdir dir))
