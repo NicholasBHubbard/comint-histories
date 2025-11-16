@@ -105,12 +105,14 @@ length if :length was changed in PROPS."
                        :loaded nil
                        :length 100
                        :no-dups nil
+                       :reselect-after nil
                        :rtrim t
                        :ltrim t))
         (valid-props '(:predicates
                        :filters
                        :persist
                        :defer-load
+                       :reselect-after
                        :length
                        :no-dups
                        :rtrim
@@ -234,7 +236,7 @@ If INSERT is non-nil then insert the history into HISTORY's history ring."
       (setq text (concat text (format "%s%c" x #x1F))))
     (f-write-text text 'utf-8 history-file)))
 
-(defun comint-histories--select-history (&rest _args)
+(defun comint-histories--select-history ()
   "Select a history from `comint-histories--histories'.
 
 A history is selected if all of it's :predicates return non-nil when invoked
@@ -332,6 +334,13 @@ removes duplicate items from `comint-input-ring'."
         (list cmd))
     args))
 
+(defun comint-histories--around-comint-send-input (orig-fn &rest args)
+  "Advise function to run around `comint-add-to-input-history'."
+  (comint-histories--select-history)
+  (apply orig-fn args)
+  (when (plist-get (cdr comint-histories--last-selected-history) :reselect-after)
+    (comint-histories--select-history)))
+
 (define-minor-mode comint-histories-mode
   "Toggle `comint-histories-mode'."
   :global t
@@ -340,8 +349,8 @@ removes duplicate items from `comint-input-ring'."
   (if comint-histories-mode
       (progn
         (add-hook 'comint-mode-hook #'comint-histories--select-history)
-        (advice-add 'comint-send-input :before
-                    #'comint-histories--select-history)
+        (advice-add 'comint-send-input :around
+                    #'comint-histories--around-comint-send-input)
         (advice-add 'comint-add-to-input-history :filter-args
                     #'comint-histories--before-add-to-comint-input-ring)
         (add-hook 'kill-emacs-hook #'comint-histories--save-histories-to-disk))
