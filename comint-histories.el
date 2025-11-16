@@ -9,7 +9,7 @@
 ;; Author: Nicholas Hubbard <nicholashubbard@posteo.net>
 ;; URL: https://github.com/NicholasBHubbard/comint-histories
 ;; Package-Requires: ((emacs "25.1") (f "0.21.0"))
-;; Version: 2.1
+;; Version: 2.2
 ;; Created: 2025-01-02
 ;; By: Nicholas Hubbard <nicholashubbard@posteo.net>
 ;; Keywords: convenience, processes, terminals
@@ -56,31 +56,35 @@
 Usage: (comint-histories-add-history history-name
           [:keyword [option]]...)
 
-:predicates    List of functions that take zero args who's conjunction
-               determines the selection of this history.
+:predicates     List of functions that take zero args who's conjunction
+                determines the selection of this history.
 
-:filters       List of regexp strings and functions that take one arg. If the
-               input matches any of the regexp's, or any of the functions return
-               non-nil when applied to the input, then the input is not added
-               to the history.
+:filters        List of regexp strings and functions that take one arg. If the
+                input matches any of the regexp's, or any of the functions
+                return non-nil when applied to the input, then the input is not
+                added to the history.
 
-:persist       If non-nil, then save and load the history to/from a file.
-               Defaults to T.
+:persist        If non-nil, then save and load the history to/from a file.
+                Defaults to T.
 
-:defer-load    If non-nil, then don't load the history from disk until it is
-               selected. Only relevant to persistent histories. Defaults to T.
+:defer-load     If non-nil, then don't load the history from disk until it is
+                selected. Only relevant to persistent histories. Defaults to T.
 
-:length        Maximum length of the history ring. Defaults to 100.
+:length         Maximum length of the history ring. Defaults to 100.
 
-:no-dups       Do not allow duplicate entries from entering the history. When
-               adding a duplicate item to the history, the older entry is
-               removed first. Defaults to NIL.
+:no-dups        Do not allow duplicate entries from entering the history. When
+                adding a duplicate item to the history, the older entry is
+                removed first. Defaults to NIL.
 
-:rtrim         If non-nil, then trim beginning whitespace from the input before
-               adding attempting to add it to the history. Defaults to T.
+:reselect-after If non-nil, when this history is selected, immediately reselect
+                the history after a call to `comint-send-input'. Defaults to
+                NIL.
 
-:ltrim         If non-nil, then trim ending whitespace from the input before
-               attempting to add it to the history. Defaults to T.
+:rtrim          If non-nil, then trim beginning whitespace from the input before
+                adding attempting to add it to the history. Defaults to T.
+
+:ltrim          If non-nil, then trim ending whitespace from the input before
+                attempting to add it to the history. Defaults to T.
 
 If a history with name NAME does not already exist in
 `comint-histories--histories', then the new one will be added to the end of
@@ -355,7 +359,8 @@ removes duplicate items from `comint-input-ring'."
                     #'comint-histories--before-add-to-comint-input-ring)
         (add-hook 'kill-emacs-hook #'comint-histories--save-histories-to-disk))
     (remove-hook 'comint-mode-hook #'comint-histories--select-history)
-    (advice-remove 'comint-send-input #'comint-histories--select-history)
+    (advice-remove 'comint-send-input
+                   #'comint-histories--around-comint-send-input)
     (advice-remove 'comint-add-to-input-history
                    #'comint-histories--before-add-to-comint-input-ring)
     (remove-hook 'kill-emacs-hook #'comint-histories--save-histories-to-disk)))
