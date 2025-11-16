@@ -180,6 +180,13 @@ Here is a modified version of the authors current configuration for comint-histo
     :length 2000
     :no-dups t)
 
+  (comint-histories-add-history shell-cds
+    :predicates '((lambda () (derived-mode-p 'shell-mode))
+                  (lambda () (string-match-p "^cd [~/]" (comint-histories-get-input))))
+    :length 250
+    :reselect-after t
+    :no-dups t)
+
   (comint-histories-add-history shell
     :predicates '((lambda () (derived-mode-p 'shell-mode)))
     :filters '("^ls" "^cd")
