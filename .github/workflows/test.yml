@@ -16,7 +16,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        emacs-version: ['25.1', 'release-snapshot']
+        emacs-version: ['29.1', 'release-snapshot']
     steps:
       - uses: actions/checkout@v4
 
