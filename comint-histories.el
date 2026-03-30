@@ -9,7 +9,7 @@
 ;; Author: Nicholas Hubbard <nicholashubbard@posteo.net>
 ;; URL: https://github.com/NicholasBHubbard/comint-histories
 ;; Package-Requires: ((emacs "25.1") (f "0.21.0"))
-;; Version: 2.2
+;; Version: 2.3
 ;; Created: 2025-01-02
 ;; By: Nicholas B. Hubbard <nicholashubbard@posteo.net>
 ;; Keywords: convenience, processes, terminals
@@ -46,6 +46,9 @@
 
 (defvar-local comint-histories--last-selected-history nil
   "Internal variable to keep track of the buffers selected history.")
+
+(defvar-local comint-histories--pending-reselect nil
+  "Non-nil when a history reselection is pending after process output.")
 
 (defvar comint-histories--histories nil
   "Internal alist of plists containing all defined histories.")
@@ -343,6 +346,12 @@ removes duplicate items from `comint-input-ring'."
   (comint-histories--select-history)
   (apply orig-fn args)
   (when (plist-get (cdr comint-histories--last-selected-history) :reselect-after)
+    (setq-local comint-histories--pending-reselect t)))
+
+(defun comint-histories--output-filter (_output)
+  "Reselect history after process output when a reselection is pending."
+  (when comint-histories--pending-reselect
+    (setq-local comint-histories--pending-reselect nil)
     (comint-histories--select-history)))
 
 (define-minor-mode comint-histories-mode
@@ -357,12 +366,16 @@ removes duplicate items from `comint-input-ring'."
                     #'comint-histories--around-comint-send-input)
         (advice-add 'comint-add-to-input-history :filter-args
                     #'comint-histories--before-add-to-comint-input-ring)
+        (add-hook 'comint-output-filter-functions
+                  #'comint-histories--output-filter)
         (add-hook 'kill-emacs-hook #'comint-histories--save-histories-to-disk))
     (remove-hook 'comint-mode-hook #'comint-histories--select-history)
     (advice-remove 'comint-send-input
                    #'comint-histories--around-comint-send-input)
     (advice-remove 'comint-add-to-input-history
                    #'comint-histories--before-add-to-comint-input-ring)
+    (remove-hook 'comint-output-filter-functions
+                 #'comint-histories--output-filter)
     (remove-hook 'kill-emacs-hook #'comint-histories--save-histories-to-disk)))
 
 (provide 'comint-histories)

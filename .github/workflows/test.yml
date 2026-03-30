@@ -1,0 +1,44 @@
+name: Tests
+
+on:
+  push:
+    paths:
+      - 'comint-histories.el'
+      - 'comint-histories-test.el'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'comint-histories.el'
+      - 'comint-histories-test.el'
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        emacs-version: ['25.1', 'release-snapshot']
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: purcell/setup-emacs@master
+        with:
+          version: ${{ matrix.emacs-version }}
+
+      - name: Install dependencies
+        run: |
+          emacs --batch \
+            --eval "(require 'package)" \
+            --eval "(add-to-list 'package-archives '(\"melpa\" . \"https://melpa.org/packages/\") t)" \
+            --eval "(package-initialize)" \
+            --eval "(package-refresh-contents)" \
+            --eval "(package-install 'f)"
+
+      - name: Run tests
+        run: |
+          emacs --batch \
+            -L . \
+            -L "$(find ~/.emacs.d/elpa -name 'f-*' -type d | head -1)" \
+            -L "$(find ~/.emacs.d/elpa -name 's-*' -type d | head -1)" \
+            -L "$(find ~/.emacs.d/elpa -name 'dash-*' -type d | head -1)" \
+            -l comint-histories-test.el \
+            -f ert-run-tests-batch-and-exit
