@@ -674,7 +674,7 @@ The buffer and process are cleaned up afterward."
   "Run BODY with a live sh comint buffer bound to NAME."
   (declare (indent 1))
   `(comint-histories-test--with-comint-buffer ,name
-       "sh" '("--norc" "--noprofile" "-i")
+       "sh" '("-i")
      ,@body))
 
 (ert-deftest comint-histories-test-get-input-live-buffer ()
