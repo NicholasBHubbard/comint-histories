@@ -50,6 +50,9 @@
 (defvar-local comint-histories--pending-reselect nil
   "Non-nil when a history reselection is pending after process output.")
 
+(defvar-local comint-histories--reselect-timer nil
+  "Timer for fallback reselection when no process output arrives.")
+
 (defvar comint-histories--histories nil
   "Internal alist of plists containing all defined histories.")
 
@@ -341,18 +344,32 @@ removes duplicate items from `comint-input-ring'."
         (list cmd))
     args))
 
+(defun comint-histories--do-pending-reselect ()
+  "Perform a pending reselection if one is active in the current buffer."
+  (when comint-histories--pending-reselect
+    (setq-local comint-histories--pending-reselect nil)
+    (when (timerp comint-histories--reselect-timer)
+      (cancel-timer comint-histories--reselect-timer)
+      (setq-local comint-histories--reselect-timer nil))
+    (comint-histories--select-history)))
+
 (defun comint-histories--around-comint-send-input (orig-fn &rest args)
   "Advise function to run around `comint-send-input'."
   (comint-histories--select-history)
   (apply orig-fn args)
   (when (plist-get (cdr comint-histories--last-selected-history) :reselect-after)
-    (setq-local comint-histories--pending-reselect t)))
+    (setq-local comint-histories--pending-reselect t)
+    (let ((buf (current-buffer)))
+      (setq-local comint-histories--reselect-timer
+                  (run-with-timer 0.5 nil
+                                  (lambda ()
+                                    (when (buffer-live-p buf)
+                                      (with-current-buffer buf
+                                        (comint-histories--do-pending-reselect)))))))))
 
 (defun comint-histories--output-filter (_output)
   "Reselect history after process output when a reselection is pending."
-  (when comint-histories--pending-reselect
-    (setq-local comint-histories--pending-reselect nil)
-    (comint-histories--select-history)))
+  (comint-histories--do-pending-reselect))
 
 (define-minor-mode comint-histories-mode
   "Toggle `comint-histories-mode'."

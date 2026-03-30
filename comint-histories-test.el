@@ -475,8 +475,8 @@ Returns (NAME . plist) suitable for pushing to `comint-histories--histories'."
 
 ;;; --- Reselect-after / timing tests ---
 
-(ert-deftest comint-histories-test-reselect-sets-pending-flag ()
-  "After send-input, :reselect-after sets the pending flag."
+(ert-deftest comint-histories-test-reselect-sets-pending-flag-and-timer ()
+  "After send-input, :reselect-after sets the pending flag and starts a timer."
   (comint-histories-test--with-clean-state
     (let* ((hist (comint-histories-test--make-history
                   "reselect" :predicates (list #'always)
@@ -484,9 +484,11 @@ Returns (NAME . plist) suitable for pushing to `comint-histories--histories'."
       (setq comint-histories--histories (list hist))
       (with-temp-buffer
         (comint-histories--select-history)
-        ;; Simulate the around advice (without actually calling comint-send-input)
         (comint-histories--around-comint-send-input #'ignore)
-        (should comint-histories--pending-reselect)))))
+        (should comint-histories--pending-reselect)
+        (should (timerp comint-histories--reselect-timer))
+        ;; Clean up timer
+        (cancel-timer comint-histories--reselect-timer)))))
 
 (ert-deftest comint-histories-test-no-pending-without-reselect-after ()
   "Without :reselect-after, no pending flag is set."
@@ -500,8 +502,8 @@ Returns (NAME . plist) suitable for pushing to `comint-histories--histories'."
         (comint-histories--around-comint-send-input #'ignore)
         (should-not comint-histories--pending-reselect)))))
 
-(ert-deftest comint-histories-test-output-filter-clears-pending ()
-  "Output filter clears the pending flag and reselects."
+(ert-deftest comint-histories-test-output-filter-clears-pending-and-timer ()
+  "Output filter clears the pending flag, cancels timer, and reselects."
   (comint-histories-test--with-clean-state
     (let* ((hist (comint-histories-test--make-history
                   "reselect" :predicates (list #'always)
@@ -509,9 +511,13 @@ Returns (NAME . plist) suitable for pushing to `comint-histories--histories'."
       (setq comint-histories--histories (list hist))
       (with-temp-buffer
         (comint-histories--select-history)
-        (setq-local comint-histories--pending-reselect t)
+        (comint-histories--around-comint-send-input #'ignore)
+        (should comint-histories--pending-reselect)
+        (should (timerp comint-histories--reselect-timer))
+        ;; Output arrives, should clear both
         (comint-histories--output-filter "some output")
-        (should-not comint-histories--pending-reselect)))))
+        (should-not comint-histories--pending-reselect)
+        (should-not comint-histories--reselect-timer)))))
 
 (ert-deftest comint-histories-test-output-filter-noop-without-pending ()
   "Output filter does nothing when no reselection is pending."
@@ -646,15 +652,14 @@ Returns (NAME . plist) suitable for pushing to `comint-histories--histories'."
 
 ;;; --- Live comint buffer tests ---
 
-(defmacro comint-histories-test--with-shell-buffer (name &rest body)
-  "Run BODY with a live shell comint buffer bound to NAME.
+(defmacro comint-histories-test--with-comint-buffer (name program args &rest body)
+  "Run BODY with a live comint buffer running PROGRAM with ARGS bound to NAME.
 The buffer and process are cleaned up afterward."
-  (declare (indent 1))
-  `(let ((,name (make-comint-in-buffer
-                 "comint-histories-test" nil "cat" nil)))
+  (declare (indent 3))
+  `(let ((,name (apply #'make-comint-in-buffer
+                       "comint-histories-test" nil ,program nil ,args)))
      (unwind-protect
          (with-current-buffer ,name
-           ;; Wait for process to be ready
            (let ((proc (get-buffer-process ,name)))
              (while (not (eq (process-status proc) 'run))
                (accept-process-output proc 0.1)))
@@ -664,6 +669,13 @@ The buffer and process are cleaned up afterward."
            (delete-process proc)))
        (when (buffer-live-p ,name)
          (kill-buffer ,name)))))
+
+(defmacro comint-histories-test--with-shell-buffer (name &rest body)
+  "Run BODY with a live sh comint buffer bound to NAME."
+  (declare (indent 1))
+  `(comint-histories-test--with-comint-buffer ,name
+       "sh" '("--norc" "--noprofile" "-i")
+     ,@body))
 
 (ert-deftest comint-histories-test-get-input-live-buffer ()
   "get-input returns the text in the comint input area."
@@ -773,17 +785,40 @@ The buffer and process are cleaned up afterward."
             (comint-histories-test--with-shell-buffer buf
               (comint-histories--select-history)
               (should (equal "a" (car comint-histories--last-selected-history)))
-              ;; Send input (sets pending reselect)
               (goto-char (point-max))
-              (insert "trigger")
-              ;; Change predicates before output arrives
+              (insert "echo trigger")
               (setq switch-flag t)
               (comint-send-input)
-              ;; Wait for cat to echo back, triggering output filter
+              ;; Wait for sh to produce output, triggering output filter
               (accept-process-output (get-buffer-process buf) 1)
               (should (equal "b"
                              (car comint-histories--last-selected-history)))))
         (comint-histories-mode -1)))))
+
+(ert-deftest comint-histories-test-reselect-timer-fallback ()
+  "Timer fallback triggers reselection when no output arrives."
+  (comint-histories-test--with-clean-state
+    (let* ((switch-flag nil)
+           (hist-a (comint-histories-test--make-history
+                    "a" :predicates (list (lambda () (not switch-flag)))
+                    :persist nil :reselect-after t))
+           (hist-b (comint-histories-test--make-history
+                    "b" :predicates (list (lambda () switch-flag))
+                    :persist nil)))
+      (setq comint-histories--histories (list hist-a hist-b))
+      (with-temp-buffer
+        (comint-histories--select-history)
+        (should (equal "a" (car comint-histories--last-selected-history)))
+        ;; Simulate send-input setting the pending flag + timer
+        (comint-histories--around-comint-send-input #'ignore)
+        (should comint-histories--pending-reselect)
+        (should (timerp comint-histories--reselect-timer))
+        ;; Change predicates to favor "b"
+        (setq switch-flag t)
+        ;; Let the timer fire (0.5s timer + margin)
+        (sleep-for 1)
+        (should-not comint-histories--pending-reselect)
+        (should (equal "b" (car comint-histories--last-selected-history)))))))
 
 (ert-deftest comint-histories-test-mode-hook-selects-on-new-buffer ()
   "comint-mode-hook selects history when a new comint buffer is created."
@@ -960,6 +995,9 @@ The buffer and process are cleaned up afterward."
                 (should comint-histories--pending-reselect))
               (with-current-buffer buf-b
                 (should-not comint-histories--pending-reselect)))
+          (with-current-buffer buf-a
+            (when (timerp comint-histories--reselect-timer)
+              (cancel-timer comint-histories--reselect-timer)))
           (kill-buffer buf-a)
           (kill-buffer buf-b))))))
 
