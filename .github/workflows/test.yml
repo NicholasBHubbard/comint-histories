@@ -5,11 +5,13 @@ on:
     paths:
       - 'comint-histories.el'
       - 'comint-histories-test.el'
+      - '.github/workflows/test.yml'
   pull_request:
     branches: [main]
     paths:
       - 'comint-histories.el'
       - 'comint-histories-test.el'
+      - '.github/workflows/test.yml'
 
 jobs:
   test:
