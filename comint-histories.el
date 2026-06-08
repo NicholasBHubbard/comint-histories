@@ -175,6 +175,14 @@ length if :length was changed in PROPS."
            (comint-histories--load-history-from-disk ,history-var t)
            (setf (plist-get (cdr ,history-var) :loaded) t))))))
 
+(defun comint-histories--maybe-load-history (history)
+  "Load HISTORY from disk when it is persistent and not already loaded."
+  (when (and (not (plist-get (cdr history) :loaded))
+             (plist-get (cdr history) :persist)
+             (f-file? (comint-histories--history-file history t)))
+    (comint-histories--load-history-from-disk history t)
+    (setf (plist-get (cdr history) :loaded) t)))
+
 (defun comint-histories-search-history (arg &optional history)
   "Search the HISTORY with `completing-read' and insert the selection.
 
@@ -192,6 +200,7 @@ automatically select the history."
                        (comint-histories--select-history)))))
     (if (not history)
         (user-error "No history could be selected")
+      (comint-histories--maybe-load-history history)
       (let ((history-val (completing-read
                           (format "history (%s): " (car history))
                           (ring-elements (plist-get (cdr history) :history))
@@ -312,11 +321,7 @@ to that histories history ring."
         (when (not (equal (car selected-history)
                           (car comint-histories--last-selected-history)))
           (comint-histories--save-original-comint-state)
-          (when (and (not (plist-get (cdr selected-history) :loaded))
-                     (plist-get (cdr selected-history) :persist)
-                     (f-file? (comint-histories--history-file selected-history t)))
-            (comint-histories--load-history-from-disk selected-history t)
-            (setf (plist-get (cdr selected-history) :loaded) t))
+          (comint-histories--maybe-load-history selected-history)
           (setq-local comint-histories--last-selected-history selected-history)
           (setq-local comint-input-ring (plist-get (cdr selected-history) :history))
           (setq-local comint-input-ring-size

@@ -926,6 +926,34 @@ The buffer and process are cleaned up afterward."
                        (buffer-substring
                         (comint-line-beginning-position) (point-max))))))))
 
+(ert-deftest comint-histories-test-search-history-loads-deferred-explicit-history ()
+  "search-history loads a deferred persistent history selected by prefix."
+  (comint-histories-test--with-clean-state
+    (let ((hist (comint-histories-test--make-history
+                 "deferred-search" :persist t :length 10)))
+      (ring-insert (plist-get (cdr hist) :history) "disk-cmd")
+      (comint-histories--save-history-to-disk hist))
+    (let ((hist (comint-histories-test--make-history
+                 "deferred-search" :persist t :defer-load t :length 10
+                 :predicates (list #'ignore)))
+          (calls 0)
+          history-candidates)
+      (setq comint-histories--histories (list hist))
+      (comint-histories-test--with-shell-buffer buf
+        (cl-letf (((symbol-function 'completing-read)
+                   (lambda (_prompt collection &rest _)
+                     (setq calls (1+ calls))
+                     (if (= calls 1)
+                         "deferred-search"
+                       (setq history-candidates collection)
+                       "disk-cmd"))))
+          (comint-histories-search-history t))
+        (should (plist-get (cdr hist) :loaded))
+        (should (equal '("disk-cmd") history-candidates))
+        (should (equal "disk-cmd"
+                       (buffer-substring
+                        (comint-line-beginning-position) (point-max))))))))
+
 (ert-deftest comint-histories-test-search-history-no-selection-error ()
   "search-history errors when no history can be selected."
   (comint-histories-test--with-clean-state
