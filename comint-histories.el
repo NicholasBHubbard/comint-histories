@@ -59,6 +59,12 @@
 (defvar comint-histories--histories nil
   "Internal alist of plists containing all defined histories.")
 
+(defconst comint-histories--persist-dir-mode #o700
+  "File mode for the persistent history directory.")
+
+(defconst comint-histories--persist-file-mode #o600
+  "File mode for persistent history files.")
+
 (defmacro comint-histories-add-history (name &rest props)
   "Declare a comint-histories history named NAME with properties PROPS.
 
@@ -110,17 +116,9 @@ actual saved history for this history is not modified outside changing its
 length if :length was changed in PROPS."
   (declare (indent defun))
   (let ((name (symbol-name name))
-        (history (list :history nil
-                       :predicates nil
-                       :filters nil
-                       :persist t
-                       :defer-load t
-                       :loaded nil
-                       :length 100
-                       :no-dups nil
-                       :reselect-after nil
-                       :rtrim t
-                       :ltrim t))
+        (history-var (make-symbol "history"))
+        (has-predicates nil)
+        (prop-forms nil)
         (valid-props '(:predicates
                        :filters
                        :persist
@@ -135,30 +133,47 @@ length if :length was changed in PROPS."
             (val (cadr props)))
         (if (not (memq prop valid-props))
             (user-error "Invalid history property: %s" prop)
-          (setq history (plist-put history prop (eval val)))
+          (when (eq prop :predicates)
+            (setq has-predicates t))
+          (push `(setcdr ,history-var
+                         (plist-put (cdr ,history-var) ,prop ,val))
+                prop-forms)
           (setq props (cddr props)))))
-    (when (null (plist-get history :predicates))
+    (when (not has-predicates)
       (user-error ":predicates cannot be NIL"))
-    (let ((history- (cons name history)))
-      `(let ((history (quote ,history-)))
-         (if-let ((existing-history (assoc (car history)
+    `(let ((,history-var (cons ,name
+                               (list :history nil
+                                     :predicates nil
+                                     :filters nil
+                                     :persist t
+                                     :defer-load t
+                                     :loaded nil
+                                     :length 100
+                                     :no-dups nil
+                                     :reselect-after nil
+                                     :rtrim t
+                                     :ltrim t))))
+       ,@(nreverse prop-forms)
+       (when (null (plist-get (cdr ,history-var) :predicates))
+         (user-error ":predicates cannot be NIL"))
+       (if-let ((existing-history (assoc (car ,history-var)
                                            comint-histories--histories)))
-             (let ((existing-ring (plist-get (cdr existing-history) :history))
-                   (new-length (plist-get (cdr history) :length)))
-               (ring-resize existing-ring new-length)
-               (setq history (cons (car history)
-                                   (plist-put (cdr history)
-                                              :history existing-ring)))
-               (setf (cdr (assoc (car history) comint-histories--histories))
-                     (cdr history)))
-           (setf (plist-get (cdr history) :history)
-                 (make-ring (plist-get (cdr history) :length)))
-           (add-to-list 'comint-histories--histories history t)
-           (when (and (plist-get (cdr history) :persist)
-                      (not (plist-get (cdr history) :defer-load))
-                      (f-file? (comint-histories--history-file history t)))
-             (comint-histories--load-history-from-disk history t)
-             (setf (plist-get (cdr history) :loaded) t)))))))
+           (let ((existing-ring (plist-get (cdr existing-history) :history))
+                 (new-length (plist-get (cdr ,history-var) :length)))
+             (ring-resize existing-ring new-length)
+             (setq ,history-var (cons (car ,history-var)
+                                      (plist-put (cdr ,history-var)
+                                                 :history existing-ring)))
+             (setf (cdr (assoc (car ,history-var) comint-histories--histories))
+                   (cdr ,history-var)))
+         (setf (plist-get (cdr ,history-var) :history)
+               (make-ring (plist-get (cdr ,history-var) :length)))
+         (add-to-list 'comint-histories--histories ,history-var t)
+         (when (and (plist-get (cdr ,history-var) :persist)
+                    (not (plist-get (cdr ,history-var) :defer-load))
+                    (f-file? (comint-histories--history-file ,history-var t)))
+           (comint-histories--load-history-from-disk ,history-var t)
+           (setf (plist-get (cdr ,history-var) :loaded) t))))))
 
 (defun comint-histories-search-history (arg &optional history)
   "Search the HISTORY with `completing-read' and insert the selection.
@@ -213,8 +228,12 @@ automatically select the history."
          (file (f-join dir (car history))))
     (when (and (not dont-create) (not (f-directory? dir)))
       (f-mkdir dir))
+    (when (and (not dont-create) (f-directory? dir))
+      (set-file-modes dir comint-histories--persist-dir-mode))
     (when (and (not dont-create) (not (f-file? file)))
       (f-touch file))
+    (when (and (not dont-create) (f-file? file))
+      (set-file-modes file comint-histories--persist-file-mode))
     file))
 
 (defun comint-histories--load-history-from-disk (history &optional insert)
@@ -251,7 +270,8 @@ If INSERT is non-nil then insert the history into HISTORY's history ring."
       (setq all-history (delete-dups all-history)))
     (dolist (x (seq-take all-history (plist-get (cdr history) :length)))
       (setq text (concat text (format "%s%c" x #x1F))))
-    (f-write-text text 'utf-8 history-file)))
+    (f-write-text text 'utf-8 history-file)
+    (set-file-modes history-file comint-histories--persist-file-mode)))
 
 (defun comint-histories--save-original-comint-state ()
   "Save the current buffer's original comint input state."

@@ -13,6 +13,7 @@
 (defvar comint-histories-test--saved-histories nil)
 (defvar comint-histories-test--saved-persist-dir nil)
 (defvar comint-histories-test--saved-global-filters nil)
+(defvar comint-histories-test--macro-side-effect-count 0)
 
 (defmacro comint-histories-test--with-clean-state (&rest body)
   "Run BODY with a fresh comint-histories state.
@@ -355,6 +356,40 @@ Returns (NAME . plist) suitable for pushing to `comint-histories--histories'."
       :predicates (list #'always) :persist nil :length 200)
     (should (equal (mapcar #'car comint-histories--histories)
                    '("first" "second" "third")))))
+
+(ert-deftest comint-histories-test-add-history-evaluates-props-at-runtime ()
+  "Property value forms are evaluated at runtime in the caller's scope."
+  (comint-histories-test--with-clean-state
+    (let ((history (list #'always))
+          (filters '("^secret"))
+          (history-length 50))
+      (comint-histories-add-history runtime-props
+        :predicates history
+        :filters filters
+        :persist nil
+        :length history-length))
+    (let ((hist (assoc "runtime-props" comint-histories--histories)))
+      (should (equal (list #'always) (plist-get (cdr hist) :predicates)))
+      (should (equal '("^secret") (plist-get (cdr hist) :filters)))
+      (should (= 50 (plist-get (cdr hist) :length))))))
+
+(ert-deftest comint-histories-test-add-history-does-not-evaluate-props-during-macroexpand ()
+  "Macro expansion does not evaluate property value forms."
+  (setq comint-histories-test--macro-side-effect-count 0)
+  (let ((expanded
+         (macroexpand
+          '(comint-histories-add-history side-effect
+             :predicates
+             (progn
+               (setq comint-histories-test--macro-side-effect-count
+                     (1+ comint-histories-test--macro-side-effect-count))
+               (list #'always))
+             :persist nil))))
+    (should (= 0 comint-histories-test--macro-side-effect-count))
+    (comint-histories-test--with-clean-state
+      (eval expanded t)
+      (should (= 1 comint-histories-test--macro-side-effect-count))
+      (should (assoc "side-effect" comint-histories--histories)))))
 
 (ert-deftest comint-histories-test-add-history-invalid-prop ()
   "Invalid property signals an error."
@@ -971,6 +1006,30 @@ The buffer and process are cleaned up afterward."
            (file (comint-histories--history-file hist t)))
       (should (stringp file))
       (should-not (f-file? file)))))
+
+(ert-deftest comint-histories-test-history-file-secures-existing-dir ()
+  "history-file restricts an existing persist directory to owner access."
+  (comint-histories-test--with-clean-state
+    (let* ((subdir (f-join comint-histories-persist-dir "permissive-dir"))
+           (comint-histories-persist-dir subdir)
+           (hist (comint-histories-test--make-history "secure-dir")))
+      (f-mkdir subdir)
+      (set-file-modes subdir #o755)
+      (comint-histories--history-file hist)
+      (should (= #o700 (logand (file-modes subdir) #o777))))))
+
+(ert-deftest comint-histories-test-history-file-secures-existing-file ()
+  "history-file restricts an existing history file to owner access."
+  (comint-histories-test--with-clean-state
+    (let* ((subdir (f-join comint-histories-persist-dir "permissive-file"))
+           (comint-histories-persist-dir subdir)
+           (hist (comint-histories-test--make-history "secure-file"))
+           (file (f-join subdir "secure-file")))
+      (f-mkdir subdir)
+      (f-touch file)
+      (set-file-modes file #o644)
+      (comint-histories--history-file hist)
+      (should (= #o600 (logand (file-modes file) #o777))))))
 
 ;;; --- Multiple buffer isolation tests ---
 
