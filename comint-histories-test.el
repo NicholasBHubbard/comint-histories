@@ -241,6 +241,24 @@ Returns (NAME . plist) suitable for pushing to `comint-histories--histories'."
             (should (member "from-disk" loaded))
             (should (member "from-memory" loaded))))))))
 
+(ert-deftest comint-histories-test-save-loaded-history-does-not-duplicate ()
+  "Saving a loaded persistent history does not duplicate its existing entries."
+  (comint-histories-test--with-clean-state
+    (let ((hist (comint-histories-test--make-history
+                 "no-duplicate" :persist t :length 10)))
+      (ring-insert (plist-get (cdr hist) :history) "cmd-1")
+      (ring-insert (plist-get (cdr hist) :history) "cmd-2")
+      (comint-histories--save-history-to-disk hist))
+    (let ((hist2 (comint-histories-test--make-history
+                  "no-duplicate" :persist t :length 10)))
+      (comint-histories--load-history-from-disk hist2 t)
+      (comint-histories--save-history-to-disk hist2))
+    (let* ((hist3 (comint-histories-test--make-history
+                   "no-duplicate" :persist t :length 10))
+           (loaded (comint-histories--load-history-from-disk hist3)))
+      (should (= 2 (length loaded)))
+      (should (equal '("cmd-2" "cmd-1") loaded)))))
+
 (ert-deftest comint-histories-test-defer-load ()
   "Deferred histories load on first selection, not at creation."
   (comint-histories-test--with-clean-state
