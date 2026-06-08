@@ -53,6 +53,9 @@
 (defvar-local comint-histories--reselect-timer nil
   "Timer for fallback reselection when no process output arrives.")
 
+(defvar-local comint-histories--original-comint-state nil
+  "Original comint input state before selecting a comint-histories history.")
+
 (defvar comint-histories--histories nil
   "Internal alist of plists containing all defined histories.")
 
@@ -250,6 +253,28 @@ If INSERT is non-nil then insert the history into HISTORY's history ring."
       (setq text (concat text (format "%s%c" x #x1F))))
     (f-write-text text 'utf-8 history-file)))
 
+(defun comint-histories--save-original-comint-state ()
+  "Save the current buffer's original comint input state."
+  (unless comint-histories--original-comint-state
+    (setq-local comint-histories--original-comint-state
+                (list :input-ring comint-input-ring
+                      :input-ring-size comint-input-ring-size
+                      :input-filter comint-input-filter))))
+
+(defun comint-histories--restore-original-comint-state ()
+  "Restore the current buffer's original comint input state."
+  (when comint-histories--original-comint-state
+    (setq-local comint-input-ring
+                (plist-get comint-histories--original-comint-state
+                           :input-ring))
+    (setq-local comint-input-ring-size
+                (plist-get comint-histories--original-comint-state
+                           :input-ring-size))
+    (setq-local comint-input-filter
+                (plist-get comint-histories--original-comint-state
+                           :input-filter)))
+  (setq-local comint-histories--last-selected-history nil))
+
 (defun comint-histories--select-history ()
   "Select a history from `comint-histories--histories'.
 
@@ -263,20 +288,24 @@ to that histories history ring."
                         (plist-get (cdr history) :predicates))
           (setq selected-history history)
           (throw 'loop t))))
-    (when (and selected-history
-               (not (equal (car selected-history)
-                           (car comint-histories--last-selected-history))))
-      (when (and (not (plist-get (cdr selected-history) :loaded))
-                 (plist-get (cdr selected-history) :persist)
-                 (f-file? (comint-histories--history-file selected-history t)))
-        (comint-histories--load-history-from-disk selected-history t)
-        (setf (plist-get (cdr selected-history) :loaded) t))
-      (setq-local comint-histories--last-selected-history selected-history)
-      (setq-local comint-input-ring (plist-get (cdr selected-history) :history))
-      (setq-local comint-input-ring-size
-                  (plist-get (cdr selected-history) :length))
-      (setq-local comint-input-filter
-                  (comint-histories--history-filter-function selected-history)))
+    (if selected-history
+        (when (not (equal (car selected-history)
+                          (car comint-histories--last-selected-history)))
+          (comint-histories--save-original-comint-state)
+          (when (and (not (plist-get (cdr selected-history) :loaded))
+                     (plist-get (cdr selected-history) :persist)
+                     (f-file? (comint-histories--history-file selected-history t)))
+            (comint-histories--load-history-from-disk selected-history t)
+            (setf (plist-get (cdr selected-history) :loaded) t))
+          (setq-local comint-histories--last-selected-history selected-history)
+          (setq-local comint-input-ring (plist-get (cdr selected-history) :history))
+          (setq-local comint-input-ring-size
+                      (plist-get (cdr selected-history) :length))
+          (setq-local comint-input-filter
+                      (comint-histories--history-filter-function
+                       selected-history)))
+      (when comint-histories--last-selected-history
+        (comint-histories--restore-original-comint-state)))
     selected-history))
 
 (defun comint-histories-get-input ()

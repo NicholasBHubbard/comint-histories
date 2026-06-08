@@ -1148,6 +1148,29 @@ The buffer and process are cleaned up afterward."
         (should (equal "b" (car comint-histories--last-selected-history)))
         (should (eq comint-input-ring (plist-get (cdr hist-b) :history)))))))
 
+(ert-deftest comint-histories-test-select-clears-state-when-no-predicates-match ()
+  "Selection restores original comint state when no history remains selected."
+  (comint-histories-test--with-clean-state
+    (let* ((flag t)
+           (hist (comint-histories-test--make-history
+                  "a" :predicates (list (lambda () flag)) :persist nil))
+           (original-ring (make-ring 10))
+           (original-filter (lambda (_) t)))
+      (setq comint-histories--histories (list hist))
+      (with-temp-buffer
+        (setq-local comint-input-ring original-ring)
+        (setq-local comint-input-ring-size 10)
+        (setq-local comint-input-filter original-filter)
+        (comint-histories--select-history)
+        (should (equal "a" (car comint-histories--last-selected-history)))
+        (should (eq comint-input-ring (plist-get (cdr hist) :history)))
+        (setq flag nil)
+        (should-not (comint-histories--select-history))
+        (should-not comint-histories--last-selected-history)
+        (should (eq comint-input-ring original-ring))
+        (should (= comint-input-ring-size 10))
+        (should (eq comint-input-filter original-filter))))))
+
 ;;; --- Persistence with filters ---
 
 (ert-deftest comint-histories-test-load-applies-filters ()
